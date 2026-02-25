@@ -11,6 +11,7 @@ By default, the script will output audio to the `reSpeaker XVF3800` microphone a
 - **OpenAI Integration:** Select natively between various OpenAI models (`tts-1`) and voices (`alloy`, `fable`, `shimmer`, etc.).
 - **Smart Speaker Routing:** Native targeting for Reachy's built-in reSpeaker or fallback speakers.
 - **HTTP Webhook Mode:** Run the tool as a persistent FastAPI server, allowing integrations via POST requests instead of single CLI executions.
+- **Interactive Web UI:** A premium, glassmorphic web interface to trigger TTS manually with live status updates.
 - **Standalone Global CLI:** Can be symlinked as a native global utility that uses an encapsulated virtual environment.
 
 ---
@@ -19,8 +20,9 @@ By default, the script will output audio to the `reSpeaker XVF3800` microphone a
 Because this script uses `pyaudio` to buffer raw PCM audio to specific output devices, you must ensure the C-bindings for portaudio are installed on your OS.
 
 ### 1. Install System Dependencies (macOS example)
+The tool relies on PortAudio for sound processing and, optionally, `SwitchAudioSource` for properly targeting volume changes to specific output devices (like the reSpeaker) so it does not affect your active headphones.
 ```bash
-brew install portaudio
+brew install portaudio switchaudio-osx
 ```
 
 ### 2. Set Up the Environment
@@ -62,18 +64,21 @@ reachy-tts "It's alive!" --voice fable
 
 # Overriding the target output speaker
 reachy-tts "Testing on my headset." --speaker "AirPods"
+
+# Temporarily forcing volume to 100%
+reachy-tts "Attention please!" --volume 100
 ```
 
 ### 🌐 Running as an HTTP Webhook Server
 If you want to plug `reachy-tts` into broader automation logic, you can start it as a persistent server:
 ```bash
-reachy-tts --http --port 8000
+reachy-tts --http --port 8000 --ui
 ```
-This boots a FastAPI server listening on `http://0.0.0.0:8000`. You can then trigger the exact same text-to-speech functionality by sending a standard POST request mapped exactly to the CLI inputs:
+This boots a FastAPI server listening on `http://0.0.0.0:8000` and exposes a premium web-based control panel at the root URL (`/`). You can then trigger the exact same text-to-speech functionality by using the UI or sending a standard POST request:
 ```bash
 curl -X POST http://localhost:8000/tts \
      -H "Content-Type: application/json" \
-     -d '{"text": "Hello world over HTTP!", "voice": "echo"}'
+     -d '{"text": "Hello world over HTTP!", "voice": "echo", "volume": 90}'
 ```
 
 ### CLI Arguments Summary
@@ -86,11 +91,28 @@ curl -X POST http://localhost:8000/tts \
 | `--api-key`| Your OpenAI API string. Will fall back to the `OPENAI_API_KEY` environment variable. | N/A |
 | `--http` | Launches a persistent FastAPI webhook server listening for TTS requests. | N/A |
 | `--port` | Defines the specific port for the FastAPI server. | `8000` |
-
+| `--ui`   | Exposes a clean and modern web UI for manual TTS triggering when in HTTP mode. | N/A |
+| `--volume`| Temporary system volume (0-100). Restored automatically after speech. | N/A |
+ 
 ---
+ 
+## ❓ Troubleshooting
+
+### "Could not connect to the Reachy Mini daemon"
+This tool requires the Reachy Mini daemon to be running in the background to handle motor communications. Ensure you have started the daemon before running `reachy-tts`.
 
 ## ⚙️ How it Works
 1. **TTS Generation:** The text string is handed to the OpenAI API which begins buffering an incoming stream of raw PCM audio chunks.
 2. **Audio Playback:** A background thread immediately starts streaming the incoming audio via PyAudio directly to your specific hardware device. 
 3. **Envelope Tracking:** At the same time, the main thread extracts overlapping frames from the playing audio, checking the root mean square (RMS) amplitude and processing it through a Voice Activity Detection (VAD) smoother.
 4. **Kinematics:** Sine wave algorithms calculate pitch, yaw, and roll modifiers alongside relative spatial movement, composing them as offsets via the Reachy SDK.
+
+## 🏗️ Architecture
+The project has recently been refactored into a scalable Python package:
+
+- `reachy-tts`: The lightweight executable proxy that runs the CLI application.
+- `reachy_tts/audio.py`: Native macOS audio routing (`SwitchAudioSource`, `osascript`) and generic stream buffering.
+- `reachy_tts/kinematics.py`: Mathematics for audio envelope tracking and organic geometric head sway logic.
+- `reachy_tts/server.py`: API Server, UI Template, and Pydantic routing.
+- `reachy_tts/core.py`: The movement engine linking TTS buffering with robotic constraints.
+- `reachy_tts/cli.py`: Isolated command-line options and execution parsing.
